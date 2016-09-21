@@ -10,6 +10,7 @@
 
 
 #define RUNNING_LOG_FILE "./run_log"
+#define FLOW_LOG_FILE "./flow_log"
 
 
 static FLOW_MONITOR s_flow_monitor;
@@ -36,6 +37,7 @@ void fm_record(int type, char *fmt, ...)
 void fm_alarm_handler()
 {
     char time_str[128] = {0};
+    char str[512] = {0};
 
     if (PRE_PPS > NEXT_PPS) {
         PRE_PPS = 0;
@@ -48,7 +50,10 @@ void fm_alarm_handler()
     }
 
     get_currnet_date_str(time_str, sizeof(time_str));
-    printf("%s, %llu pps, %.2f kbps\n", time_str, NEXT_PPS - PRE_PPS, (float)(NEXT_BPS - PRE_BPS)/1024);
+    snprintf(str, sizeof(str), "%s, %llu pps, %.2f kbps\n", time_str, NEXT_PPS - PRE_PPS, (float)(NEXT_BPS - PRE_BPS)/1024);
+    //printf("%s, %llu pps, %.2f kbps\n", time_str, NEXT_PPS - PRE_PPS, (float)(NEXT_BPS - PRE_BPS)/1024);
+    printf("%s", str);
+    log_record(s_flow_monitor.flow_log, str);
 
     PRE_PPS = NEXT_PPS;
     PRE_BPS = NEXT_BPS;
@@ -99,7 +104,8 @@ void *fm_thread()
 int fm_init()
 {
     pthread_cond_init(&(s_flow_monitor.cond), NULL);
-    snprintf(s_flow_monitor.running_log, sizeof(s_flow_monitor.running_log), RUNNING_LOG_FILE);  
+    snprintf(s_flow_monitor.running_log, sizeof(s_flow_monitor.running_log), RUNNING_LOG_FILE); 
+    snprintf(s_flow_monitor.flow_log, sizeof(s_flow_monitor.flow_log), FLOW_LOG_FILE); 
     signal(SIGALRM, fm_alarm_handler);
 
     PRE_PPS = 0;

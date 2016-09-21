@@ -7,8 +7,8 @@
 #define LOGMSG(fmt, ...)    printf("\033[32m%s line %d MSG: \033[0m"fmt, __func__, __LINE__, ##__VA_ARGS__)
 #define LOGERR(fmt, ...)    printf("\033[31m%s line %d ERR: \033[0m"fmt, __func__, __LINE__, ##__VA_ARGS__)
 
-#define MAX_LOG_LINE 350
-#define LOG_DEL_LINE  200
+#define MAX_LOG_LINE 500
+#define LOG_DEL_LINE  300
 
 void log_record(char *log_file, char *log);
 

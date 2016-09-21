@@ -9,6 +9,7 @@
 
 typedef struct flow_monitor{
     char running_log[64];
+    char flow_log[64];
     pthread_cond_t cond;
     WORD64 pre_pps;
     WORD64 next_pps;

@@ -1,4 +1,5 @@
 #include "log.h"
+#include "util.h"
 
 /* get total line nums of a file 
  * err return -1, ok return line nums
@@ -46,7 +47,7 @@ int recod_log_once(char *log_file, char *log)
     char date_str[128] = {0};
     char buf[1024] = {0};
 
-    LOGMSG("%s", log);
+    //LOGMSG("%s", log);
     
     FILE *fp = fopen(log_file,"a+");
     if(!fp) {
