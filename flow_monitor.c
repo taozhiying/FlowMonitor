@@ -1,77 +1,63 @@
-#include "log.h"
-#include "flow_monitor.h"
 #include <signal.h>
-#include	<sys/socket.h>
+#include <sys/socket.h>
 #include <linux/if_ether.h>
 #include <netinet/in.h>
 #include <stdarg.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <errno.h>
+
+#include "flow_monitor.h"
+#include "timer.h"
 
 
-#define RUNNING_LOG_FILE "./run_log"
-#define FLOW_LOG_FILE "./flow_log"
+/*the interval to calculate flow rate, 
+*metric with millisecond, default 1 sec*/
+#define CALC_FLOW_INTERVAL 1000
 
+static FLOW_MONITOR flow_monitor;
 
-static FLOW_MONITOR s_flow_monitor;
-#define PRE_PPS s_flow_monitor.pre_pps
-#define NEXT_PPS s_flow_monitor.next_pps
-#define PRE_BPS s_flow_monitor.pre_bps
-#define NEXT_BPS s_flow_monitor.next_bps
+#define PRE_PPS flow_monitor.pre_pps
+#define NEXT_PPS flow_monitor.next_pps
+#define PRE_BPS flow_monitor.pre_bps
+#define NEXT_BPS flow_monitor.next_bps
 
-void fm_record(int type, char *fmt, ...)
+void fm_calc_timeout()
 {
-    char log[1024];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(log, sizeof(log), fmt, ap);
-    va_end(ap);
-
-    if (type == MO_LOG_ERR) {
-        LOGERR("%s", log);
-    }
-
-    log_record(s_flow_monitor.running_log, log);
-}
-
-void fm_alarm_handler()
-{
-    char time_str[128] = {0};
     char str[512] = {0};
+    WORD64 now_pps, now_bps;
 
-    if (PRE_PPS > NEXT_PPS) {
+    /*copy the value first, then do calculation,
+    * preventing lock the NEXT_PPS and NEXT_BPS too long,
+    * then the socket can not get them*/
+    pthread_mutex_lock(&flow_monitor.calc_lock);
+    now_pps = NEXT_PPS;
+    now_bps = NEXT_BPS;
+    pthread_mutex_unlock(&flow_monitor.calc_lock);
+
+    /*in case the word64 turn over*/
+    if (PRE_PPS > now_pps) {
+        pthread_mutex_lock(&flow_monitor.calc_lock);
         PRE_PPS = 0;
         NEXT_PPS = 0;
+        pthread_mutex_unlock(&flow_monitor.calc_lock);
     }
-
-    if (PRE_BPS > NEXT_BPS) {
+    if (PRE_BPS > now_pps) {
+        pthread_mutex_lock(&flow_monitor.calc_lock);
         PRE_BPS = 0;
         NEXT_BPS = 0;
+        pthread_mutex_unlock(&flow_monitor.calc_lock);
     }
 
-    get_currnet_date_str(time_str, sizeof(time_str));
-    snprintf(str, sizeof(str), "%s, %llu pps, %.2f kbps\n", time_str, NEXT_PPS - PRE_PPS, (float)(NEXT_BPS - PRE_BPS)/1024);
-    //printf("%s, %llu pps, %.2f kbps\n", time_str, NEXT_PPS - PRE_PPS, (float)(NEXT_BPS - PRE_BPS)/1024);
+    snprintf(str, sizeof(str), "%llu pps, %.2f kbps\n", now_pps - PRE_PPS, (float)(now_bps - PRE_BPS)/1024);
     printf("%s", str);
-    log_record(s_flow_monitor.flow_log, str);
 
-    PRE_PPS = NEXT_PPS;
-    PRE_BPS = NEXT_BPS;
-
-    alarm(1);
+    PRE_PPS = now_pps;
+    PRE_BPS = now_bps;
 }
 
-char *fm_get_running_log_file()
-{
-    return s_flow_monitor.running_log;
-}
 
-void fm_dump()
-{
-    LOGMSG("---------running info----------");
-}
-
-void *fm_thread()
+void *flow_monitor_loop()
 {
     unsigned char buffer[2048] = {0};
     int soc_fd;
@@ -79,11 +65,9 @@ void *fm_thread()
     struct sockaddr saddr;
     int saddr_size;
 
-    pthread_detach(pthread_self());
-
     soc_fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (soc_fd < 0) {
-        fm_record(MO_LOG_ERR, "failed to create socket\n");
+        LOGERR("failed to create socket:%s\n", strerror(errno));
         return NULL;
     }  
 
@@ -91,52 +75,49 @@ void *fm_thread()
         saddr_size = sizeof(saddr);
         data_size = recvfrom(soc_fd, buffer, sizeof(buffer), 0, &saddr ,(socklen_t*)&saddr_size);
         if (data_size < 0) {
-            fm_record(MO_LOG_ERR, "recv length 0\n");
             continue;
         } else {
             data_size -= 14;  //minus the length of eth head
+
+            pthread_mutex_lock(&flow_monitor.calc_lock);
             __sync_fetch_and_add(&NEXT_PPS, 1);
             __sync_fetch_and_add(&NEXT_BPS, data_size);
+            pthread_mutex_unlock(&flow_monitor.calc_lock);
        }
     }
 }
 
 int fm_init()
 {
-    pthread_cond_init(&(s_flow_monitor.cond), NULL);
-    snprintf(s_flow_monitor.running_log, sizeof(s_flow_monitor.running_log), RUNNING_LOG_FILE); 
-    snprintf(s_flow_monitor.flow_log, sizeof(s_flow_monitor.flow_log), FLOW_LOG_FILE); 
-    signal(SIGALRM, fm_alarm_handler);
+    pthread_mutex_init(&flow_monitor.timer_lock, NULL);
+    pthread_mutex_init(&flow_monitor.calc_lock, NULL);
 
     PRE_PPS = 0;
     NEXT_PPS = 0;
     PRE_BPS = 0;
     NEXT_BPS = 0;
 
-    return 0;
-}
-
-int fm_init_thread()
-{
-    pthread_t tid = 0;
-
-    if (pthread_create(&tid, NULL, fm_thread, NULL)) {
-        fm_record(MO_LOG_ERR, "fail to pthread_create\n");
-        return -1;
-    }
+    /*set timer*/
+    timer_callback_register(fm_calc_timeout);
+    timer_set_interval(CALC_FLOW_INTERVAL);
     
-    alarm(1);
-
     return 0;
 }
 
 int flow_monitor_start()
 {
-    func_execute_and_return(fm_init);
-    func_execute_and_return(fm_init_thread);
+    fm_init();
 
-    /*just for test*/
-    while(1) {
-        sleep(60);
+    pthread_t tid = 0;
+    if (pthread_create(&tid, NULL, timer_thread, NULL)) {
+        LOGERR("create timer thread failed!\n");
+        return -1;
     }
+
+    flow_monitor_loop();
+
+    pthread_mutex_destroy(&flow_monitor.timer_lock);
+    pthread_mutex_destroy(&flow_monitor.calc_lock);
+
+    return 0;
 }

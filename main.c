@@ -2,8 +2,11 @@
 #include "flow_monitor.h"
 #include <unistd.h>
 #include <execinfo.h>
+#include <syslog.h>
+#include <sys/file.h>
+#include <fcntl.h>
 
-#define VERSION "20160920"
+#define VERSION "20170716"
 
 int handle_opt(int argc, char *argv[])
 {
@@ -24,7 +27,6 @@ int handle_opt(int argc, char *argv[])
     return 0;
 }
 
-#define DUMP_2_STDOUT   1
 void sigsegv_handler(int sig)
 {
     int j, nptrs;
@@ -32,27 +34,15 @@ void sigsegv_handler(int sig)
     void *buffer[100];
     char timebuf[64];
     char **strings;
-    char *running_log;
-    char write_buf[1024] = {0};
 
     nptrs = backtrace(buffer, SIZE);
     
-    fprintf(write_buf,
+    fprintf(stdout,
             "**************************************************************\n"
             "                       recv signal %d                        *\n"
             "*   %s backtrace() returned %d addresses         *\n"
             "**************************************************************\n",
             sig, now_to_string(timebuf, sizeof(timebuf)), nptrs);
-    log_record(running_log, write_buf);
-    
-#if DUMP_2_STDOUT
-    fprintf(stderr,
-            "**************************************************************\n"
-            "                       recv signal %d                        *\n"
-            "*   %s backtrace() returned %d addresses         *\n"
-            "**************************************************************\n",
-            sig, now_to_string(timebuf, sizeof(timebuf)), nptrs);
-#endif
 
     strings = backtrace_symbols(buffer, nptrs);
     if (strings == NULL) {
@@ -60,10 +50,8 @@ void sigsegv_handler(int sig)
         exit(EXIT_FAILURE);
     }
     
-    running_log = fm_get_running_log_file();
     for (j = 0; j < nptrs; j++) {
         fprintf(stderr, "%s\n", strings[j]);
-        log_record(running_log, strings[j]);
     }
     
     free(strings);
@@ -85,15 +73,51 @@ int catch_sig_init()
     signal(SIGBUS, sigsegv_handler);
     signal(SIGXCPU, sigsegv_handler);
     signal(SIGXFSZ, sigsegv_handler);
-    signal(SIGUSR1, fm_dump);
 
     return 0;
 }
 
+#define LOCK_FILE "/tmp/flow_monitor.pid"   
+#define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP)
+int is_already_running(const char *lock_file, mode_t lock_mode)
+{
+    int ret, fd;
+    char buf[32];
+    struct flock fl;
+
+    fd = open(lock_file, O_RDWR|O_CREAT, lock_mode);
+    if (fd < 0) {
+        LOGERR("is_already_running, open lock file failed!\n");
+        exit(1);
+    }
+    fl.l_type = F_WRLCK;
+    fl.l_start = 0;
+    fl.l_whence = SEEK_SET;
+    fl.l_len = 0;
+    ret = fcntl(fd, F_SETLK, &fl);
+    if (ret) {
+        /* already running or some error. */
+        close(fd);
+        return 1;
+    }
+    /* O.K. write the pid */
+    ret = ftruncate(fd,0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)getpid());
+    ret = write(fd, buf, strlen(buf) + 1);
+
+    return 0;
+}
+
+
 int main(int argc, char **argv)
 {
-    func_execute_and_return(handle_opt, argc, argv);
-    func_execute_and_return(catch_sig_init);
+    handle_opt(argc, argv);
+    catch_sig_init();
+
+    if (is_already_running(LOCK_FILE, LOCK_MODE)) {
+        LOGERR("the program is already running!\n");
+    }
+    
     func_execute_and_return(flow_monitor_start);
 
     return 0;

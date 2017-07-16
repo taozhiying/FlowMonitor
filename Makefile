@@ -6,11 +6,8 @@ MISSING_DEPS := $(filter-out $(wildcard $(DEPS)),$(DEPS))
 MISSING_DEPS_SOURCES := $(wildcard $(patsubst %.d,%.c,$(MISSING_DEPS)))
 
 
-ifeq ($(debug),n)
 CFLAGS += -s -O2 -Wall -MD
-else
-CFLAGS += -g -O0 -Wall -MD -DDEBUG
-endif
+#CFLAGS += -g -O0 -Wall -MD -DDEBUG
 
 TARGET := flow_monitor
 

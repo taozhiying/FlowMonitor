@@ -1,5 +1,5 @@
-#ifndef FLOW_MONITOR_H
-#define FLOW_MONITOR_H
+#ifndef __FLOW_MONITOR_H__
+#define __FLOW_MONITOR_H__
 
 #include "util.h"
 #include <sys/types.h>
@@ -7,10 +7,9 @@
 
 #define WORD64  long long unsigned int
 
-typedef struct flow_monitor{
-    char running_log[64];
-    char flow_log[64];
-    pthread_cond_t cond;
+typedef struct _flow_monitor_ {
+    pthread_mutex_t timer_lock;
+    pthread_mutex_t calc_lock;
     WORD64 pre_pps;
     WORD64 next_pps;
     WORD64 pre_bps;
