@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h> 
+#include <unistd.h>
 
 #include "timer.h"
 #include "flow_monitor.h"
@@ -75,4 +76,6 @@ void *timer_thread()
             continue;
         }
     }
+
+    close(fd);
 }
