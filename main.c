@@ -116,6 +116,7 @@ int main(int argc, char **argv)
 
     if (is_already_running(LOCK_FILE, LOCK_MODE)) {
         LOGERR("the program is already running!\n");
+        exit(0);
     }
     
     func_execute_and_return(flow_monitor_start);

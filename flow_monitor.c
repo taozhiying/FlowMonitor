@@ -42,14 +42,14 @@ void fm_calc_timeout()
         NEXT_PPS = 0;
         pthread_mutex_unlock(&flow_monitor.calc_lock);
     }
-    if (PRE_BPS > now_pps) {
+    if (PRE_BPS > now_bps) {
         pthread_mutex_lock(&flow_monitor.calc_lock);
         PRE_BPS = 0;
         NEXT_BPS = 0;
         pthread_mutex_unlock(&flow_monitor.calc_lock);
     }
 
-    snprintf(str, sizeof(str), "%llu pps, %.2f kbps\n", now_pps - PRE_PPS, (float)(now_bps - PRE_BPS)/1024);
+    snprintf(str, sizeof(str), "%llu pps, %.2lf kbps\n", now_pps - PRE_PPS, (double)(now_bps - PRE_BPS)/1024L);
     printf("%s", str);
 
     PRE_PPS = now_pps;
