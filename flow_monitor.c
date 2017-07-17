@@ -89,7 +89,6 @@ void *flow_monitor_loop()
 
 int fm_init()
 {
-    pthread_mutex_init(&flow_monitor.timer_lock, NULL);
     pthread_mutex_init(&flow_monitor.calc_lock, NULL);
 
     PRE_PPS = 0;
@@ -116,7 +115,6 @@ int flow_monitor_start()
 
     flow_monitor_loop();
 
-    pthread_mutex_destroy(&flow_monitor.timer_lock);
     pthread_mutex_destroy(&flow_monitor.calc_lock);
 
     return 0;

@@ -8,7 +8,6 @@
 #define WORD64  long long unsigned int
 
 typedef struct _flow_monitor_ {
-    pthread_mutex_t timer_lock;
     pthread_mutex_t calc_lock;
     WORD64 pre_pps;
     WORD64 next_pps;
